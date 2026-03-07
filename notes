@@ -1,0 +1,8 @@
+#run pose estimatiom
+# From your project root
+#.\.venv311\Scripts\activate python "C:\Users\pc\OneDrive - Technological University Dublin\Pro-AI Analyzer 2\extract_pose.py"
+
+.\.venv311\Scripts\activate
+pip install opencv-python numpy tqdm
+# (mediapipe not needed here; we read JSON produced earlier)
+python "C:\Users\pc\OneDrive - Technological University Dublin\Pro-AI Analyzer 2\analyze_pose_features.py"

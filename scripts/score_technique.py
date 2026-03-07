@@ -7,7 +7,7 @@ ROOT_DIR = r"C:\Users\pc\OneDrive - Technological University Dublin\Pro-AI Analy
 IN_CSV   = os.path.join(ROOT_DIR, "features.csv")
 OUT_CSV  = os.path.join(ROOT_DIR, "scored_features.csv")
 
-# Dataset-specific good shots (tuned from your sample
+# Dataset-specific good shots (tuned from my sample
 BANDS = {
     "plant_to_ball_norm": {
         "ideal_min": 10.0,  # typical good clips cluster in here
@@ -147,6 +147,69 @@ def warnings_for_row(row):
         warns.append("weak_pose_data")
 
     return ";".join(warns) if warns else ""
+
+# def score_shot_technique(metrics: dict) -> dict:
+#     """
+#     Take the metrics dict and apply your calibrated bands
+#     to compute sub-scores + overall score (0–100).
+#     """
+#     # Example, you plug in your real bands:
+#     scores = {
+#         "plant_to_ball_norm": ...,
+#         "trunk_lean_deg": ...,
+#         "hip_facing_deg": ...,
+#         "follow_through_arc_deg": ...,
+#         "lock_angle_deg": ...,
+#     }
+
+#     # Example overall: mean of the sub-scores
+#     scores["overall"] = sum(scores.values()) / len(scores)
+
+#     return scores
+
+# single-shot scoring for FastAPI ----------
+
+def score_shot_technique(metrics: dict) -> dict:
+    """
+    Take a metrics dict for ONE shot and return 0-100 scores
+    using the same calibrated bands as the CSV pipeline.
+
+    Expected metrics keys:
+      - plant_to_ball_norm
+      - trunk_lean_deg
+      - hip_facing_deg
+      - follow_through_arc_deg
+      - lock_angle_deg
+    """
+
+    # 1–5 scores using your existing helper
+    s_plant_5 = score_metric("plant_to_ball_norm",    metrics.get("plant_to_ball_norm"))
+    s_trunk_5 = score_metric("trunk_lean_deg",        metrics.get("trunk_lean_deg"))
+    s_hip_5   = score_metric("hip_facing_deg",        metrics.get("hip_facing_deg"))
+    s_ft_5    = score_metric("follow_through_arc_deg",metrics.get("follow_through_arc_deg"))
+    s_lock_5  = score_metric("lock_angle_deg",        metrics.get("lock_angle_deg"))
+
+    # Overall on 1–5 scale (reuses your existing function)
+    overall_5 = overall_score([s_plant_5, s_trunk_5, s_hip_5, s_ft_5, s_lock_5])
+
+    # Convert 1–5 -> 0–100 (simple linear: 1 = 20, 5 = 100)
+    def to_100(score_5):
+        if score_5 is None:
+            return None
+        return round(score_5 * 20)  # 1→20, 2→40, ..., 5→100
+
+    scores_100 = {
+        "plant_to_ball_norm":   to_100(s_plant_5),
+        "trunk_lean_deg":       to_100(s_trunk_5),
+        "hip_facing_deg":       to_100(s_hip_5),
+        "follow_through_arc_deg": to_100(s_ft_5),
+        "lock_angle_deg":       to_100(s_lock_5),
+    }
+
+    if overall_5 is not None:
+        scores_100["overall"] = to_100(overall_5)
+
+    return scores_100
 
 # ---------- main pipeline ----------
 

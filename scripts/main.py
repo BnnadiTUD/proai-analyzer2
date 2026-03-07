@@ -1,16 +1,13 @@
-# main.py
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-
+from score_technique import score_shot_technique
 from pathlib import Path
 import shutil
 import uuid
 import os
-
 from extract_pose import extract_pose_for_video        
-from analyze_pose_features import compute_metrics_for_shot  
-from score_technique import score_shot_technique        
+from analyze_pose_features import compute_metrics_for_shot
 
 app = FastAPI(
     title="ProAI Analyzer API",
@@ -76,20 +73,19 @@ async def analyze_shot(file: UploadFile = File(...)):
     finally:
         file.file.close()
 
-    # --- 4) Run pipeline: extract_pose -> analyze_pose_features -> score_technique
+    #  Run pipeline: extract_pose -> analyze_pose_features -> score_technique
     try:
-        #Extract pose **only for this video**
-        pose_data_path = extract_pose_for_video(
+        #Extract pose for the video 
+        pose_json_path = extract_pose_for_video(
             video_path=str(video_path),
             output_dir=str(shot_dir),
             shot_id=shot_id,
         )
 
-        #Compute metrics for that shot
-
+        #Compute metrics for that shot 
         metrics = compute_metrics_for_shot(
-            pose_data_path=str(pose_data_path),
-            shot_id=shot_id,
+            video_path=str(video_path),
+            pose_json_path=str(pose_json_path),
         )
 
         if not isinstance(metrics, dict):

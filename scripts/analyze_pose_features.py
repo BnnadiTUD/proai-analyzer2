@@ -3,6 +3,7 @@ from typing import Dict, Tuple, List, Optional
 import numpy as np
 import cv2
 from tqdm import tqdm
+import pandas as pd
 
 #shot	striking_foot	plant_to_ball_norm	trunk_lean	hip_facing	follow_arc	lock_angle	Interpretation
 # my paths
@@ -174,6 +175,41 @@ def hough_ball_positions(video_path: str, guess_k: int, feet_px: List[Tuple[int,
 
     cap.release()
     return centers, found
+
+def compute_metrics_for_shot(video_path: str, pose_json_path: str) -> dict:
+    """
+    Used for FastAPI / single-shot pipeline.
+
+    Returns e.g.
+    {
+        "plant_to_ball_norm": 17.3,
+        "trunk_lean_deg": -7.5,
+        "hip_facing_deg": 72.0,
+        "follow_through_arc_deg": 164.0,
+        "lock_angle_deg": 141.0,
+    }
+    """
+    res = analyze_clip(video_path, pose_json_path)
+    if not res:
+        raise RuntimeError(f"Could not analyze clip for {video_path}")
+
+    def safe_float(v):
+        try:
+            if v == "" or v is None:
+                return None
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    metrics = {
+        "plant_to_ball_norm":       safe_float(res.get("plant_to_ball_norm")),
+        "trunk_lean_deg":           safe_float(res.get("trunk_lean_deg")),
+        "hip_facing_deg":           safe_float(res.get("hip_facing_deg")),
+        "follow_through_arc_deg":   safe_float(res.get("follow_through_arc_deg")),
+        "lock_angle_deg":           safe_float(res.get("lock_angle_deg")),
+    }
+
+    return metrics
 
 #  Core per-clip analysis 
 def analyze_clip(video_path: str, pose_json_path: str) -> Optional[Dict]:

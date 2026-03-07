@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+venv/
+.venv/
+.venv311/
+env/
+.env/
+
+# OS / Editor
+.DS_Store
+*.log
+.idea/
+.vscode/
+
+trimmed_videos/
+debug_out/
+debug_out_contact/
+poses_blazepose/
+*.csv
+
