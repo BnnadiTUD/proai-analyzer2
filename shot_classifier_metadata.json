@@ -1,0 +1,36 @@
+{
+  "feature_columns": [
+    "plant_to_ball_norm",
+    "trunk_lean_deg",
+    "hip_facing_deg",
+    "follow_through_arc_deg",
+    "lock_angle_deg"
+  ],
+  "rows_used": 95,
+  "label_counts": {
+    "good": 52,
+    "bad": 43
+  },
+  "label_source_counts": {
+    "calibrated_score": 95
+  },
+  "manual_note_rows": 0,
+  "fallback_rows": 95,
+  "evaluation": {
+    "test_size": 0.2,
+    "train_rows": 76,
+    "test_rows": 19,
+    "accuracy": 0.8421052631578947,
+    "classification_report": "              precision    recall  f1-score   support\n\n         bad       0.88      0.78      0.82         9\n        good       0.82      0.90      0.86        10\n\n    accuracy                           0.84        19\n   macro avg       0.85      0.84      0.84        19\nweighted avg       0.85      0.84      0.84        19\n",
+    "confusion_matrix": [
+      [
+        7,
+        2
+      ],
+      [
+        1,
+        9
+      ]
+    ]
+  }
+}

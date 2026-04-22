@@ -2,8 +2,6 @@ import os, json, math, csv
 from typing import Dict, Tuple, List, Optional
 import numpy as np
 import cv2
-from tqdm import tqdm
-import pandas as pd
 
 #shot	striking_foot	plant_to_ball_norm	trunk_lean	hip_facing	follow_arc	lock_angle	Interpretation
 # my paths
@@ -16,7 +14,7 @@ WINDOW_PRE  = 10         # frames before contact for analysis window
 WINDOW_POST = 18         # frames after contact
 FOLLOW_MS   = 300        # follow-through duration (ms)
 SMOOTH_N    = 3          # moving-average smoothing window (frames)
-MIN_VIS     = 0.3      # ignore landmarks below this visibility
+MIN_VIS     = 0.3        # ignore landmarks below this visibility
 BALL_SEARCH_PAD = 200    # px radius ROI around feet for HoughCircles
 BALL_MIN_RAD   = 4       # px, adjust to your footage
 BALL_MAX_RAD   = 30      # px, adjust to your footage
@@ -30,61 +28,100 @@ L = {
     "left_foot_index":"left_foot_index","right_foot_index":"right_foot_index"
 }
 
-#utils
+
 def moving_avg(x: np.ndarray, n: int) -> np.ndarray:
-    if n <= 1: return x
+    if n <= 1:
+        return x
     k = n
-    c = np.convolve(x, np.ones(k)/k, mode='same')
-    # fix boundary shrink
-    for i in range(k//2):
-        c[i] = np.mean(x[:i+1])
-        c[-i-1] = np.mean(x[-(i+1):])
+    c = np.convolve(x, np.ones(k) / k, mode='same')
+    for i in range(k // 2):
+        c[i] = np.mean(x[:i + 1])
+        c[-i - 1] = np.mean(x[-(i + 1):])
     return c
 
-#used for angle calculations for locking ankle
+
 def ang_deg(p, q, r) -> float:
     """Angle at q formed by p-q-r (internal angle, degrees)."""
     v1 = np.array(p) - np.array(q)
     v2 = np.array(r) - np.array(q)
-    n1 = np.linalg.norm(v1); n2 = np.linalg.norm(v2)
-    if n1 < 1e-6 or n2 < 1e-6: return float("nan")
-    cos = np.clip(np.dot(v1, v2) / (n1*n2), -1.0, 1.0)
+    n1 = np.linalg.norm(v1)
+    n2 = np.linalg.norm(v2)
+    if n1 < 1e-6 or n2 < 1e-6:
+        return float("nan")
+    cos = np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)
     return math.degrees(math.acos(cos))
 
-#for trunk lean and hip facing
+
+def angle_at(p, q, r) -> float:
+    """Angle at q formed by p-q-r (internal angle, degrees)."""
+    v1 = np.array(p, dtype=float) - np.array(q, dtype=float)
+    v2 = np.array(r, dtype=float) - np.array(q, dtype=float)
+    n1 = np.linalg.norm(v1)
+    n2 = np.linalg.norm(v2)
+    if n1 < 1e-6 or n2 < 1e-6:
+        return float("nan")
+    cos = np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)
+    return math.degrees(math.acos(cos))
+
+
+def normalize_signed_angle(angle: float) -> float:
+    """Keep direction but fold wrapped body angles into a stable [-90, 90] style range."""
+    a = ((angle + 180.0) % 360.0) - 180.0
+    if a > 90.0:
+        a -= 180.0
+    elif a < -90.0:
+        a += 180.0
+    return a
+
+
+def normalize_unsigned_angle(angle: float) -> float:
+    """Fold to the smaller equivalent angle in [0, 180]."""
+    a = abs(angle) % 360.0
+    if a > 180.0:
+        a = 360.0 - a
+    return a
+
+
 def line_angle_deg(v, axis="vertical") -> float:
     """Angle of vector v against vertical or horizontal."""
     vx, vy = v[0], v[1]
     if axis == "vertical":
-        # angle to (0,-1) up; positive forward lean = torso ahead (vy negative)
         ref = np.array([0.0, -1.0])
     else:
         ref = np.array([1.0, 0.0])
-    n1 = np.linalg.norm([vx, vy]); n2 = np.linalg.norm(ref)
-    if n1 < 1e-6: return float("nan")
-    cos = np.clip((vx*ref[0]+vy*ref[1])/(n1*n2), -1.0, 1.0)
+    n1 = np.linalg.norm([vx, vy])
+    n2 = np.linalg.norm(ref)
+    if n1 < 1e-6:
+        return float("nan")
+    cos = np.clip((vx * ref[0] + vy * ref[1]) / (n1 * n2), -1.0, 1.0)
     return math.degrees(math.acos(cos))
 
-# hip width for normalization
+
 def hip_width(pose_frame: Dict) -> Optional[float]:
     try:
         lh = pose_frame["landmarks"][L["left_hip"]]
         rh = pose_frame["landmarks"][L["right_hip"]]
-        return float(np.linalg.norm(np.array(lh[:2])-np.array(rh[:2])))
-    except: return None
+        return float(np.linalg.norm(np.array(lh[:2]) - np.array(rh[:2])))
+    except Exception:
+        return None
 
-def get_xy(pose_frame: Dict, name: str) -> Optional[Tuple[float,float]]:
-    if name not in pose_frame["landmarks"]: return None
-    x,y,z,vis = pose_frame["landmarks"][name]
-    if vis < MIN_VIS: return None
-    return (x,y)
+
+def get_xy(pose_frame: Dict, name: str) -> Optional[Tuple[float, float]]:
+    if name not in pose_frame["landmarks"]:
+        return None
+    x, y, z, vis = pose_frame["landmarks"][name]
+    if vis < MIN_VIS:
+        return None
+    return (x, y)
+
 
 def zscore(x):
     x = np.asarray(x, dtype=float)
-    s = np.nanstd(x); m = np.nanmean(x)
+    s = np.nanstd(x)
+    m = np.nanmean(x)
     return (x - m) / (s + 1e-6)
 
-# Contact detection helpers
+
 def contact_from_ball_and_feet(ball_xy: np.ndarray, la_xy: np.ndarray, ra_xy: np.ndarray, fallback_idx: int) -> int:
     """contact = frame with minimal distance between ball and either ankle, else fallback."""
     if ball_xy is None or len(ball_xy) == 0:
@@ -92,65 +129,62 @@ def contact_from_ball_and_feet(ball_xy: np.ndarray, la_xy: np.ndarray, ra_xy: np
 
     dL = np.linalg.norm(ball_xy - la_xy, axis=1) if la_xy is not None else np.full(len(ball_xy), np.inf)
     dR = np.linalg.norm(ball_xy - ra_xy, axis=1) if ra_xy is not None else np.full(len(ball_xy), np.inf)
-    d  = np.minimum(dL, dR)
+    d = np.minimum(dL, dR)
 
-    # keep only finite values
     valid = np.isfinite(d)
     if not np.any(valid):
-        return fallback_idx  # no usable ball-foot distances
+        return fallback_idx
 
-    # assume ball_xy is already aligned to the full timeline window
     best_rel = np.argmin(d[valid])
     best_idx = np.arange(len(d))[valid][best_rel]
     return int(best_idx)
 
 
 def contact_from_foot_speed(la_xy: np.ndarray, ra_xy: np.ndarray) -> int:
-    vL = np.r_[0, np.linalg.norm(np.diff(la_xy,axis=0),axis=1)] if la_xy is not None else np.zeros(1)
-    vR = np.r_[0, np.linalg.norm(np.diff(ra_xy,axis=0),axis=1)] if ra_xy is not None else np.zeros(1)
-    S  = zscore(moving_avg(vL,SMOOTH_N)) + zscore(moving_avg(vR,SMOOTH_N))
+    vL = np.r_[0, np.linalg.norm(np.diff(la_xy, axis=0), axis=1)] if la_xy is not None else np.zeros(1)
+    vR = np.r_[0, np.linalg.norm(np.diff(ra_xy, axis=0), axis=1)] if ra_xy is not None else np.zeros(1)
+    S = zscore(moving_avg(vL, SMOOTH_N)) + zscore(moving_avg(vR, SMOOTH_N))
     return int(np.nanargmax(S))
 
-#  Ball detection around contact 
-def hough_ball_positions(video_path: str, guess_k: int, feet_px: List[Tuple[int,int]], frame_shape, fps: float) -> Tuple[np.ndarray, List[bool]]:
+
+def hough_ball_positions(video_path: str, guess_k: int, feet_px: List[Tuple[int, int]], frame_shape, fps: float) -> Tuple[np.ndarray, List[bool]]:
     """
-    Detect ball center (in pixel coords) around guess_k±WINDOW using HoughCircles.
+    Detect ball center (in pixel coords) around guess_k +/- WINDOW using HoughCircles.
     Restrict search to ROI around the feet to reduce false positives.
     Returns (T,2) array with NaNs for misses, and list of found flags.
     """
     h, w = frame_shape[:2]
     start = max(0, guess_k - WINDOW_PRE)
-    end   = guess_k + WINDOW_POST
+    end = guess_k + WINDOW_POST
     T = end - start + 1
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video: {video_path}")
 
-    # Seek helper
     def read_frame(i):
         cap.set(cv2.CAP_PROP_POS_FRAMES, i)
         ok, frm = cap.read()
         return frm if ok else None
 
-    centers = np.full((T,2), np.nan, dtype=float)
-    found   = [False]*T
-    prev_c  = None
+    centers = np.full((T, 2), np.nan, dtype=float)
+    found = [False] * T
+    prev_c = None
 
-    for idx, f in enumerate(range(start, end+1)):
+    for idx, f in enumerate(range(start, end + 1)):
         frame = read_frame(f)
-        if frame is None: continue
+        if frame is None:
+            continue
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (7,7), 1.5)
+        gray = cv2.GaussianBlur(gray, (7, 7), 1.5)
 
-        # Build ROI around feet
-        mask = np.zeros((h,w), dtype=np.uint8)
-        for (fx,fy) in feet_px:
-            if fx is None: continue
+        mask = np.zeros((h, w), dtype=np.uint8)
+        for (fx, fy) in feet_px:
+            if fx is None:
+                continue
             cv2.circle(mask, (int(fx), int(fy)), BALL_SEARCH_PAD, 255, -1)
         roi = cv2.bitwise_and(gray, gray, mask=mask)
 
-        # HoughCircles (with tuned param2 incase theres too many/few)
         circles = cv2.HoughCircles(
             roi, cv2.HOUGH_GRADIENT, dp=1.2, minDist=20,
             param1=120, param2=15, minRadius=BALL_MIN_RAD, maxRadius=BALL_MAX_RAD
@@ -158,14 +192,12 @@ def hough_ball_positions(video_path: str, guess_k: int, feet_px: List[Tuple[int,
         candidate = None
         if circles is not None:
             c = np.uint16(np.around(circles))[0, :]
-            # choose closest to previous, else any
             if prev_c is not None:
-                dists = [np.hypot(cx-prev_c[0], cy-prev_c[1]) for (cx,cy,_) in c]
+                dists = [np.hypot(cx - prev_c[0], cy - prev_c[1]) for (cx, cy, _) in c]
                 j = int(np.argmin(dists))
                 candidate = (float(c[j][0]), float(c[j][1]))
             else:
-                # pick the most central among detected
-                j = int(np.argmin([(abs(cx-w/2)+abs(cy-h/2)) for (cx,cy,_) in c]))
+                j = int(np.argmin([(abs(cx - w / 2) + abs(cy - h / 2)) for (cx, cy, _) in c]))
                 candidate = (float(c[j][0]), float(c[j][1]))
 
         if candidate is not None:
@@ -176,18 +208,10 @@ def hough_ball_positions(video_path: str, guess_k: int, feet_px: List[Tuple[int,
     cap.release()
     return centers, found
 
+
 def compute_metrics_for_shot(video_path: str, pose_json_path: str) -> dict:
     """
     Used for FastAPI / single-shot pipeline.
-
-    Returns e.g.
-    {
-        "plant_to_ball_norm": 17.3,
-        "trunk_lean_deg": -7.5,
-        "hip_facing_deg": 72.0,
-        "follow_through_arc_deg": 164.0,
-        "lock_angle_deg": 141.0,
-    }
     """
     res = analyze_clip(video_path, pose_json_path)
     if not res:
@@ -202,28 +226,28 @@ def compute_metrics_for_shot(video_path: str, pose_json_path: str) -> dict:
             return None
 
     metrics = {
-        "plant_to_ball_norm":       safe_float(res.get("plant_to_ball_norm")),
-        "trunk_lean_deg":           safe_float(res.get("trunk_lean_deg")),
-        "hip_facing_deg":           safe_float(res.get("hip_facing_deg")),
-        "follow_through_arc_deg":   safe_float(res.get("follow_through_arc_deg")),
-        "lock_angle_deg":           safe_float(res.get("lock_angle_deg")),
+        "plant_to_ball_norm": safe_float(res.get("plant_to_ball_norm")),
+        "trunk_lean_deg": safe_float(res.get("trunk_lean_deg")),
+        "hip_facing_deg": safe_float(res.get("hip_facing_deg")),
+        "follow_through_arc_deg": safe_float(res.get("follow_through_arc_deg")),
+        "lock_angle_deg": safe_float(res.get("lock_angle_deg")),
     }
 
     return metrics
 
-#  Core per-clip analysis 
+
 def analyze_clip(video_path: str, pose_json_path: str) -> Optional[Dict]:
-    # Load pose
-    if not os.path.exists(pose_json_path): return None
+    if not os.path.exists(pose_json_path):
+        return None
     with open(pose_json_path, "r", encoding="utf-8") as f:
         pose = json.load(f)
 
     fps = float(pose.get("fps", 30.0))
     frames = pose["frames"]
     T_pose = len(frames)
-    if T_pose < 3: return None
+    if T_pose < 3:
+        return None
 
-    # Build per-frame XY for key joints 
     def series(name):
         arr = []
         for fr in frames:
@@ -235,89 +259,78 @@ def analyze_clip(video_path: str, pose_json_path: str) -> Optional[Dict]:
     ra = series(L["right_ankle"])
     lk = series(L["left_knee"])
     rk = series(L["right_knee"])
-    lfi= series(L["left_foot_index"])
-    rfi= series(L["right_foot_index"])
-    lhip= series(L["left_hip"])
-    rhip= series(L["right_hip"])
+    lfi = series(L["left_foot_index"])
+    rfi = series(L["right_foot_index"])
+    lhip = series(L["left_hip"])
+    rhip = series(L["right_hip"])
     lsh = series(L["left_shoulder"])
     rsh = series(L["right_shoulder"])
 
-    # Smooth ankle traces
     for arr in (la, ra, lhip, rhip, lsh, rsh, lfi, rfi, lk, rk):
-        for c in (0,1):
-            arr[:,c] = moving_avg(arr[:,c], SMOOTH_N)
+        for c in (0, 1):
+            arr[:, c] = moving_avg(arr[:, c], SMOOTH_N)
 
-    # First estimate contact by foot speed peak (seconds)
     k_guess = contact_from_foot_speed(la, ra)
 
-    # Map normalized foot coords to pixel coords for ball search actual frame size to convert to px
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened(): return None
+    if not cap.isOpened():
+        return None
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     cap.release()
 
     def to_px(xy):
-        return None if (xy is None or np.isnan(xy[0]) or np.isnan(xy[1])) else (int(xy[0]*W), int(xy[1]*H))
+        return None if (xy is None or np.isnan(xy[0]) or np.isnan(xy[1])) else (int(xy[0] * W), int(xy[1] * H))
 
     feet_px = []
-    for f in range(max(0,k_guess-2), min(T_pose-1,k_guess+2)):
+    for f in range(max(0, k_guess - 2), min(T_pose - 1, k_guess + 2)):
         lpx = to_px(la[f]) if not np.isnan(la[f]).any() else None
         rpx = to_px(ra[f]) if not np.isnan(ra[f]).any() else None
-        if lpx: feet_px.append(lpx)
-        if rpx: feet_px.append(rpx)
+        if lpx:
+            feet_px.append(lpx)
+        if rpx:
+            feet_px.append(rpx)
     if not feet_px:
-        # fallback
-        feet_px = [(W//2, H//2)]
+        feet_px = [(W // 2, H // 2)]
 
-    # Detect ball centers around k_guess window in pixels
-    ball_px, ok = hough_ball_positions(video_path, k_guess, feet_px, (H,W,3), fps=fps)
+    ball_px, ok = hough_ball_positions(video_path, k_guess, feet_px, (H, W, 3), fps=fps)
 
-    # Convert detected ball_px in the window back to normalized, aligned to full timeline
     start = max(0, k_guess - WINDOW_PRE)
-    end   = k_guess + WINDOW_POST
-    bp = np.full((T_pose,2), np.nan, dtype=float)
-    for i, t in enumerate(range(start, end+1)):
-        if 0 <= t < T_pose and not np.isnan(ball_px[i,0]):
-            bp[t,0] = ball_px[i,0] / W
-            bp[t,1] = ball_px[i,1] / H
+    end = k_guess + WINDOW_POST
+    bp = np.full((T_pose, 2), np.nan, dtype=float)
+    for i, t in enumerate(range(start, end + 1)):
+        if 0 <= t < T_pose and not np.isnan(ball_px[i, 0]):
+            bp[t, 0] = ball_px[i, 0] / W
+            bp[t, 1] = ball_px[i, 1] / H
 
-    # If ball found on enough frames, recompute contact as foot-ball min
-    valid = np.where(~np.isnan(bp[:,0]))[0]
+    valid = np.where(~np.isnan(bp[:, 0]))[0]
     if len(valid) >= 3:
         k_contact = contact_from_ball_and_feet(bp, la, ra, fallback_idx=k_guess)
     else:
-        k_contact = k_guess  # fallback
+        k_contact = k_guess
 
-    # Safety clamp for windows
     k0 = max(0, k_contact - WINDOW_PRE)
-    k1 = min(T_pose-1, k_contact + WINDOW_POST)
+    k1 = min(T_pose - 1, k_contact + WINDOW_POST)
 
-    # Determine striking vs plant foot at contact (closest ankle to ball)
-    if not np.isnan(bp[k_contact,0]):
-        dL = np.linalg.norm(bp[k_contact]-la[k_contact])
-        dR = np.linalg.norm(bp[k_contact]-ra[k_contact])
+    if not np.isnan(bp[k_contact, 0]):
+        dL = np.linalg.norm(bp[k_contact] - la[k_contact])
+        dR = np.linalg.norm(bp[k_contact] - ra[k_contact])
         striking = "left" if dL <= dR else "right"
     else:
-        # fallback: which foot is moving faster at k_contact
-        vL = 0.0 if k_contact==0 else np.linalg.norm(la[k_contact]-la[k_contact-1])
-        vR = 0.0 if k_contact==0 else np.linalg.norm(ra[k_contact]-ra[k_contact-1])
+        vL = 0.0 if k_contact == 0 else np.linalg.norm(la[k_contact] - la[k_contact - 1])
+        vR = 0.0 if k_contact == 0 else np.linalg.norm(ra[k_contact] - ra[k_contact - 1])
         striking = "left" if vL >= vR else "right"
 
-    # Build mid-hip and mid-shoulder
     mid_hip = (lhip + rhip) / 2.0
-    mid_sh  = (lsh  + rsh ) / 2.0
+    mid_sh = (lsh + rsh) / 2.0
 
-    #  Metrics 
-    # Hip width for normalization
     hw = []
-    for t in range(k0, k1+1):
+    for t in range(k0, k1 + 1):
         if not (np.isnan(lhip[t]).any() or np.isnan(rhip[t]).any()):
-            hw.append(np.linalg.norm(lhip[t]-rhip[t]))
-    norm_hip = float(np.nanmedian(hw)) if len(hw)>0 else np.nan
+            hw.append(np.linalg.norm(lhip[t] - rhip[t]))
+    norm_hip = float(np.nanmedian(hw)) if len(hw) > 0 else np.nan
 
-    # 1) Standing foot ball distance (normalized by hip width) at impact
-    if not np.isnan(bp[k_contact,0]):
+    if not np.isnan(bp[k_contact, 0]):
         if striking == "left":
             plant_xy = ra[k_contact]
         else:
@@ -327,47 +340,50 @@ def analyze_clip(video_path: str, pose_json_path: str) -> Optional[Dict]:
     else:
         plant2ball_norm = np.nan
 
-    # 2) Body angle/position at impact
-    # Trunk lean: angle between vector (mid_hip - mid_shoulder) and vertical
-    if not (np.isnan(mid_hip[k_contact]).any() or np.isnan(mid_sh[k_contact]).any()):
-        torso_vec = mid_sh[k_contact] - mid_hip[k_contact]
-        trunk_lean_deg = line_angle_deg(torso_vec, axis="vertical")
-        # make "forward lean" negative if shoulders ahead (smaller y)
-        if torso_vec[1] < 0:
-            trunk_lean_deg = -abs(trunk_lean_deg)
-        else:
-            trunk_lean_deg = abs(trunk_lean_deg)
-    else:
-        trunk_lean_deg = np.nan
+    trunk_samples = []
+    for t in range(k0, k_contact + 1):
+        if not (np.isnan(mid_hip[t]).any() or np.isnan(mid_sh[t]).any()):
+            dx = float(mid_sh[t][0] - mid_hip[t][0])
+            dy = float(mid_sh[t][1] - mid_hip[t][1])
+            trunk_samples.append(normalize_signed_angle(math.degrees(math.atan2(dx, -dy))))
+    trunk_lean_deg = float(np.mean(trunk_samples)) if trunk_samples else np.nan
 
-    # Hip facing: angle of left_hip -> right_hip against horizontal
-    if not (np.isnan(lhip[k_contact]).any() or np.isnan(rhip[k_contact]).any()):
-        hip_vec = rhip[k_contact] - lhip[k_contact]
-        hip_facing_deg = line_angle_deg(hip_vec, axis="horizontal")
-    else:
-        hip_facing_deg = np.nan
-
-    # 3) Follow-through arc: hip rotation change over FOLLOW_MS after contact
-    frames_follow = int(round((FOLLOW_MS/1000.0) * fps))
-    end_ft = min(T_pose-1, k_contact + frames_follow)
-    hip_angles = []
-    for t in range(k_contact, end_ft+1):
-        if not (np.isnan(lhip[t]).any() or np.isnan(rhip[t]).any()):
-            hv = rhip[t] - lhip[t]
-            hip_angles.append(math.degrees(math.atan2(hv[1], hv[0])))
-    follow_arc = float(abs((hip_angles[-1] - hip_angles[0]))) if len(hip_angles)>=2 else np.nan
-
-    # 4) Lock angle (knee-ankle-toe) at impact (striking foot)
     if striking == "left":
-        knee = lk[k_contact]; ankle = la[k_contact]; toe = lfi[k_contact]
+        stand_ankle = ra
+        kick_knee = lk
+        kick_ankle = la
     else:
-        knee = rk[k_contact]; ankle = ra[k_contact]; toe = rfi[k_contact]
-    if not (np.isnan(knee).any() or np.isnan(ankle).any() or np.isnan(toe).any()):
-        lock_angle = float(ang_deg(knee, ankle, toe))  # smaller angle ⇒ more locked
-    else:
-        lock_angle = np.nan
+        stand_ankle = la
+        kick_knee = rk
+        kick_ankle = ra
 
-    # Package
+    hip_samples = []
+    for t in range(max(0, k_contact - 3), min(T_pose - 1, k_contact + 3) + 1):
+        if not (np.isnan(mid_hip[t]).any() or np.isnan(stand_ankle[t]).any()):
+            dx = float(stand_ankle[t][0] - mid_hip[t][0])
+            dy = float(stand_ankle[t][1] - mid_hip[t][1])
+            hip_samples.append(normalize_unsigned_angle(math.degrees(math.atan2(dy, dx))))
+    hip_facing_deg = float(np.mean(hip_samples)) if hip_samples else np.nan
+
+    frames_follow = int(round((FOLLOW_MS / 1000.0) * fps))
+    end_ft = min(T_pose - 1, k_contact + frames_follow)
+    follow_angles = []
+    for t in range(0, end_ft + 1):
+        if not (np.isnan(kick_knee[t]).any() or np.isnan(kick_ankle[t]).any() or np.isnan(stand_ankle[t]).any()):
+            angle = angle_at(kick_ankle[t], kick_knee[t], stand_ankle[t])
+            if not math.isnan(angle):
+                follow_angles.append(angle)
+    follow_arc = float(max(follow_angles) - min(follow_angles)) if len(follow_angles) >= 3 else np.nan
+
+    lock_start = max(0, k_contact - int(round(0.25 * fps)))
+    lock_angles = []
+    for t in range(lock_start, k_contact + 1):
+        if not (np.isnan(mid_hip[t]).any() or np.isnan(kick_knee[t]).any() or np.isnan(kick_ankle[t]).any()):
+            angle = angle_at(mid_hip[t], kick_knee[t], kick_ankle[t])
+            if not math.isnan(angle):
+                lock_angles.append(angle)
+    lock_angle = float(min(lock_angles)) if lock_angles else np.nan
+
     return {
         "shot_id": os.path.splitext(os.path.basename(video_path))[0],
         "fps": fps,
@@ -380,8 +396,9 @@ def analyze_clip(video_path: str, pose_json_path: str) -> Optional[Dict]:
         "lock_angle_deg": round(lock_angle, 2) if not math.isnan(lock_angle) else ""
     }
 
+
 def main():
-    files = [f for f in os.listdir(VIDEOS_DIR) if f.lower().endswith((".mp4",".mov",".m4v",".avi"))]
+    files = [f for f in os.listdir(VIDEOS_DIR) if f.lower().endswith((".mp4", ".mov", ".m4v", ".avi"))]
     files.sort()
     if not files:
         print(f"[WARN] No videos found in {VIDEOS_DIR}")
@@ -394,23 +411,26 @@ def main():
         pose_json_path = os.path.join(POSES_DIR, f"{shot_id}.json")
         try:
             res = analyze_clip(video_path, pose_json_path)
-            if res: rows.append(res)
-            else: print(f"[SKIP] {fname} (pose or frames missing)")
+            if res:
+                rows.append(res)
+            else:
+                print(f"[SKIP] {fname} (pose or frames missing)")
         except Exception as e:
             print(f"[ERROR] {fname}: {e}")
 
     if rows:
-        keys = ["shot_id","fps","contact_frame","striking_foot",
-                "plant_to_ball_norm","trunk_lean_deg","hip_facing_deg",
-                "follow_through_arc_deg","lock_angle_deg"]
+        keys = ["shot_id", "fps", "contact_frame", "striking_foot",
+                "plant_to_ball_norm", "trunk_lean_deg", "hip_facing_deg",
+                "follow_through_arc_deg", "lock_angle_deg"]
         with open(OUT_CSV, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=keys)
             w.writeheader()
             for r in rows:
                 w.writerow(r)
-        print(f"\n Wrote {len(rows)} rows → {OUT_CSV}")
+        print(f"\n Wrote {len(rows)} rows -> {OUT_CSV}")
     else:
         print("[WARN] No results written.")
+
 
 if __name__ == "__main__":
     main()

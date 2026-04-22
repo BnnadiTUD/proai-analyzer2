@@ -1,51 +1,52 @@
-import os
 import csv
 import math
+import os
 
 # PATHS
 ROOT_DIR = r"C:\Users\pc\OneDrive - Technological University Dublin\Pro-AI Analyzer 2"
-IN_CSV   = os.path.join(ROOT_DIR, "features.csv")
-OUT_CSV  = os.path.join(ROOT_DIR, "scored_features.csv")
+IN_CSV = os.path.join(ROOT_DIR, "features.csv")
+OUT_CSV = os.path.join(ROOT_DIR, "scored_features.csv")
 
-# Dataset-specific good shots (tuned from my sample
+# FYP2-calibrated bands
 BANDS = {
     "plant_to_ball_norm": {
-        "ideal_min": 10.0,  # typical good clips cluster in here
-        "ideal_max": 30.0,
-        "lo_min": 3.0,      # outside this strongly penalize
-        "lo_max": 45.0,
+        "ideal_min": 5.0,
+        "ideal_max": 12.5,
+        "lo_min": 2.5,
+        "lo_max": 28.0,
     },
     "trunk_lean_deg": {
-        # from my data most good looking clips land 5-20 in the coordinate system
-        "ideal_min": 5.0,
-        "ideal_max": 20.0,
-        "lo_min": 0.0,
-        "lo_max": 30.0,
+        "ideal_min": -6.0,
+        "ideal_max": 8.0,
+        "lo_min": -20.0,
+        "lo_max": 28.0,
     },
     "hip_facing_deg": {
-        # 60-120 degrees = reasonable hip orientation in diagonal/side views
-        "ideal_min": 60.0,
-        "ideal_max": 120.0,
-        "lo_min": 20.0,
-        "lo_max": 170.0,
+        "ideal_min": 0.0,
+        "ideal_max": 70.0,
+        "lo_min": 0.0,
+        "lo_max": 110.0,
     },
     "follow_through_arc_deg": {
-        # 80-250 degrees = confident follow-through; below 40 often tracking/short clip
-        "ideal_min": 80.0,
-        "ideal_max": 250.0,
-        "lo_min": 30.0,
-        "lo_max": 320.0,
+        "ideal_min": 60.0,
+        "ideal_max": 190.0,
+        "lo_min": 20.0,
+        "lo_max": 240.0,
     },
     "lock_angle_deg": {
-        # 100-135 degrees = solid locked ankle; <80 or >160 looks off / wrong frame
-        "ideal_min": 100.0,
-        "ideal_max": 135.0,
+        "ideal_min": 85.0,
+        "ideal_max": 165.0,
         "lo_min": 70.0,
-        "lo_max": 170.0,
+        "lo_max": 180.0,
     },
 }
 
-# ---------- helpers ----------
+IDEAL_FLOOR = 90.0
+IDEAL_CENTER_BONUS = 10.0
+EDGE_PENALTY_EXPONENT = 1.35
+RANGE_PENALTY_EXPONENT = 1.6
+WORST_METRIC_WEIGHT = 0.2
+
 
 def to_float(x):
     if x is None:
@@ -63,49 +64,78 @@ def to_float(x):
     except ValueError:
         return None
 
+
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
-def linear_score(value, ideal_min, ideal_max, lo_min, lo_max):
+
+def normalize_metric_value(name, value):
+    v = to_float(value)
+    if v is None:
+        return None
+
+    if name == "trunk_lean_deg":
+        while v > 180.0:
+            v -= 360.0
+        while v < -180.0:
+            v += 360.0
+        if v > 90.0:
+            v = 180.0 - v
+        elif v < -90.0:
+            v = -180.0 - v
+        return v
+
+    if name == "hip_facing_deg":
+        v = abs(v) % 360.0
+        if v > 180.0:
+            v = 360.0 - v
+        return min(v, 180.0 - v)
+
+    return v
+
+
+def curved_score(value, ideal_min, ideal_max, lo_min, lo_max):
     """
-    Generic band-based score:
-    - 5.0 inside [ideal_min, ideal_max]
-    - linearly down towards 1.0 as you move to [lo_min, lo_max] bounds
-    - <lo_min or >lo_max → close to 1.0
+    Match the FYP2 scoring curve:
+    - 90-100 inside the ideal band, with the center scoring highest
+    - decays non-linearly toward 0 as the value moves toward the loose bounds
+    - 0 outside the loose bounds
     """
     v = to_float(value)
     if v is None:
         return None
 
-    # inside ideal band
+    ideal_center = (ideal_min + ideal_max) / 2.0
+    ideal_half_width = max((ideal_max - ideal_min) / 2.0, 1e-6)
+
     if ideal_min <= v <= ideal_max:
-        return 5.0
+        normalized_offset = abs(v - ideal_center) / ideal_half_width
+        edge_penalty = 1.0 - normalized_offset ** EDGE_PENALTY_EXPONENT
+        return clamp(IDEAL_FLOOR + IDEAL_CENTER_BONUS * edge_penalty, IDEAL_FLOOR, 100.0)
 
-    # below ideal
+    if v <= lo_min or v >= lo_max:
+        return 0.0
+
     if v < ideal_min:
-        if v <= lo_min:
-            return 1.0
-        # map [lo_min -> ideal_min] to [1 -> 5]
-        t = (v - lo_min) / (ideal_min - lo_min)
-        return clamp(1.0 + 4.0 * t, 1.0, 5.0)
+        distance_from_ideal = ideal_min - v
+        penalty_range = ideal_min - lo_min
+    else:
+        distance_from_ideal = v - ideal_max
+        penalty_range = lo_max - ideal_max
 
-    # above ideal
-    if v > ideal_max:
-        if v >= lo_max:
-            return 1.0
-        # map [ideal_max -> lo_max] to [5 -> 1]
-        t = (v - ideal_max) / (lo_max - ideal_max)
-        return clamp(5.0 - 4.0 * t, 1.0, 5.0)
+    normalized_distance = clamp(distance_from_ideal / max(penalty_range, 1e-6), 0.0, 1.0)
+    score = IDEAL_FLOOR * (1.0 - normalized_distance ** RANGE_PENALTY_EXPONENT)
+    return clamp(score, 0.0, IDEAL_FLOOR)
 
-    return None  # fallback (shouldn't hit)
 
 def score_metric(name, value):
     cfg = BANDS.get(name)
     if not cfg:
         return None
+    normalized_value = normalize_metric_value(name, value)
     return round(
-        linear_score(
-            value,
+        curved_score(
+            normalized_value,
             cfg["ideal_min"],
             cfg["ideal_max"],
             cfg["lo_min"],
@@ -114,19 +144,28 @@ def score_metric(name, value):
         2,
     ) if value not in ("", None) else None
 
+
 def overall_score(scores):
     vals = [s for s in scores if s is not None]
     if not vals:
         return None
-    return round(sum(vals) / len(vals), 2)
+    average = sum(vals) / len(vals)
+    worst = min(vals)
+    combined = average * (1.0 - WORST_METRIC_WEIGHT) + worst * WORST_METRIC_WEIGHT
+    return round(combined, 2)
+
 
 def warnings_for_row(row):
-    """ flags for obviously broken detections."""
+    """Flags for obviously broken detections."""
     warns = []
 
     ptbn = to_float(row.get("plant_to_ball_norm"))
-    if ptbn is not None and (ptbn < 0.5 or ptbn > 60):
+    if ptbn is not None and (ptbn < 0.2 or ptbn > 3.0):
         warns.append("suspect_plant_to_ball")
+
+    trunk = to_float(row.get("trunk_lean_deg"))
+    if trunk is not None and abs(trunk) > 25:
+        warns.append("suspect_trunk_lean")
 
     ft = to_float(row.get("follow_through_arc_deg"))
     if ft is not None and (ft < 5 or ft > 360):
@@ -136,82 +175,48 @@ def warnings_for_row(row):
     if la is not None and (la < 50 or la > 180):
         warns.append("suspect_lock_angle")
 
-    # If almost everything is missing, flag it
     missing_core = sum(
         1
-        for k in ["plant_to_ball_norm", "trunk_lean_deg", "hip_facing_deg",
-                  "follow_through_arc_deg", "lock_angle_deg"]
-        if not to_float(row.get(k))
+        for k in [
+            "plant_to_ball_norm",
+            "trunk_lean_deg",
+            "hip_facing_deg",
+            "follow_through_arc_deg",
+            "lock_angle_deg",
+        ]
+        if to_float(row.get(k)) is None
     )
     if missing_core >= 4:
         warns.append("weak_pose_data")
 
     return ";".join(warns) if warns else ""
 
-# def score_shot_technique(metrics: dict) -> dict:
-#     """
-#     Take the metrics dict and apply your calibrated bands
-#     to compute sub-scores + overall score (0–100).
-#     """
-#     # Example, you plug in your real bands:
-#     scores = {
-#         "plant_to_ball_norm": ...,
-#         "trunk_lean_deg": ...,
-#         "hip_facing_deg": ...,
-#         "follow_through_arc_deg": ...,
-#         "lock_angle_deg": ...,
-#     }
-
-#     # Example overall: mean of the sub-scores
-#     scores["overall"] = sum(scores.values()) / len(scores)
-
-#     return scores
-
-# single-shot scoring for FastAPI ----------
 
 def score_shot_technique(metrics: dict) -> dict:
     """
-    Take a metrics dict for ONE shot and return 0-100 scores
-    using the same calibrated bands as the CSV pipeline.
-
-    Expected metrics keys:
-      - plant_to_ball_norm
-      - trunk_lean_deg
-      - hip_facing_deg
-      - follow_through_arc_deg
-      - lock_angle_deg
+    Take a metrics dict for one shot and return the same 0-100
+    scores used in FYP2.
     """
+    s_plant = score_metric("plant_to_ball_norm", metrics.get("plant_to_ball_norm"))
+    s_trunk = score_metric("trunk_lean_deg", metrics.get("trunk_lean_deg"))
+    s_hip = score_metric("hip_facing_deg", metrics.get("hip_facing_deg"))
+    s_ft = score_metric("follow_through_arc_deg", metrics.get("follow_through_arc_deg"))
+    s_lock = score_metric("lock_angle_deg", metrics.get("lock_angle_deg"))
 
-    # 1–5 scores using your existing helper
-    s_plant_5 = score_metric("plant_to_ball_norm",    metrics.get("plant_to_ball_norm"))
-    s_trunk_5 = score_metric("trunk_lean_deg",        metrics.get("trunk_lean_deg"))
-    s_hip_5   = score_metric("hip_facing_deg",        metrics.get("hip_facing_deg"))
-    s_ft_5    = score_metric("follow_through_arc_deg",metrics.get("follow_through_arc_deg"))
-    s_lock_5  = score_metric("lock_angle_deg",        metrics.get("lock_angle_deg"))
-
-    # Overall on 1–5 scale (reuses your existing function)
-    overall_5 = overall_score([s_plant_5, s_trunk_5, s_hip_5, s_ft_5, s_lock_5])
-
-    # Convert 1–5 -> 0–100 (simple linear: 1 = 20, 5 = 100)
-    def to_100(score_5):
-        if score_5 is None:
-            return None
-        return round(score_5 * 20)  # 1→20, 2→40, ..., 5→100
-
-    scores_100 = {
-        "plant_to_ball_norm":   to_100(s_plant_5),
-        "trunk_lean_deg":       to_100(s_trunk_5),
-        "hip_facing_deg":       to_100(s_hip_5),
-        "follow_through_arc_deg": to_100(s_ft_5),
-        "lock_angle_deg":       to_100(s_lock_5),
+    scores = {
+        "plant_to_ball_norm": s_plant,
+        "trunk_lean_deg": s_trunk,
+        "hip_facing_deg": s_hip,
+        "follow_through_arc_deg": s_ft,
+        "lock_angle_deg": s_lock,
     }
 
-    if overall_5 is not None:
-        scores_100["overall"] = to_100(overall_5)
+    overall = overall_score([s_plant, s_trunk, s_hip, s_ft, s_lock])
+    if overall is not None:
+        scores["overall"] = overall
 
-    return scores_100
+    return scores
 
-# ---------- main pipeline ----------
 
 def score_features_file(in_csv=IN_CSV, out_csv=OUT_CSV):
     if not os.path.exists(in_csv):
@@ -239,23 +244,23 @@ def score_features_file(in_csv=IN_CSV, out_csv=OUT_CSV):
     scored = []
     for r in rows:
         s_plant = score_metric("plant_to_ball_norm", r.get("plant_to_ball_norm"))
-        s_trunk = score_metric("trunk_lean_deg",      r.get("trunk_lean_deg"))
-        s_hip   = score_metric("hip_facing_deg",      r.get("hip_facing_deg"))
-        s_ft    = score_metric("follow_through_arc_deg", r.get("follow_through_arc_deg"))
-        s_lock  = score_metric("lock_angle_deg",      r.get("lock_angle_deg"))
+        s_trunk = score_metric("trunk_lean_deg", r.get("trunk_lean_deg"))
+        s_hip = score_metric("hip_facing_deg", r.get("hip_facing_deg"))
+        s_ft = score_metric("follow_through_arc_deg", r.get("follow_through_arc_deg"))
+        s_lock = score_metric("lock_angle_deg", r.get("lock_angle_deg"))
 
         ovr = overall_score([s_plant, s_trunk, s_hip, s_ft, s_lock])
         warn = warnings_for_row(r)
 
         r_out = dict(r)
         r_out.update(
-            score_plant_to_ball = s_plant,
-            score_trunk_lean    = s_trunk,
-            score_hip_facing    = s_hip,
-            score_follow_through= s_ft,
-            score_lock_angle    = s_lock,
-            overall_score       = ovr,
-            warnings            = warn,
+            score_plant_to_ball=s_plant,
+            score_trunk_lean=s_trunk,
+            score_hip_facing=s_hip,
+            score_follow_through=s_ft,
+            score_lock_angle=s_lock,
+            overall_score=ovr,
+            warnings=warn,
         )
         scored.append(r_out)
 
@@ -265,7 +270,8 @@ def score_features_file(in_csv=IN_CSV, out_csv=OUT_CSV):
         for r in scored:
             w.writerow(r)
 
-    print(f" Wrote {len(scored)} scored rows → {out_csv}")
+    print(f"Wrote {len(scored)} scored rows -> {out_csv}")
+
 
 if __name__ == "__main__":
     score_features_file()

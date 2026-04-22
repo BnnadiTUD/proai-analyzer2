@@ -1,18 +1,23 @@
 import csv
 from pathlib import Path
+import pandas as pd
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-
 SERVICE_ACCOUNT_PATH = "serviceAccountKey.json"
 OUTPUT_CSV = Path("training_data.csv")
-cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
-firebase_admin.initialize_app(cred)
+
+# -----------------------------
+# Init Firebase Admin
+if not firebase_admin._apps:
+    cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
+    firebase_admin.initialize_app(cred)
 
 db = firestore.client()
 
-rows = []
+firestore_rows = []
 
+# Read Firestore shots
 users_ref = db.collection("users").stream()
 
 for user_doc in users_ref:
@@ -21,11 +26,9 @@ for user_doc in users_ref:
 
     for shot_doc in videos_ref:
         data = shot_doc.to_dict()
-
         metrics = data.get("metrics", {}) or {}
-        scores = data.get("scores", {}) or {}
 
-        row = {
+        firestore_rows.append({
             "user_id": user_id,
             "shot_id": data.get("shotId", shot_doc.id),
             "plant_to_ball_norm": metrics.get("plant_to_ball_norm") or metrics.get("plantToBallNorm"),
@@ -35,26 +38,32 @@ for user_doc in users_ref:
             "lock_angle_deg": metrics.get("lock_angle_deg") or metrics.get("lockAngleDeg"),
             "overall_score": data.get("overallScore"),
             "created_at": data.get("createdAt"),
-        }
+        })
 
-        rows.append(row)
+firestore_df = pd.DataFrame(firestore_rows)
 
-# Save
-fieldnames = [
-    "user_id",
-    "shot_id",
-    "plant_to_ball_norm",
-    "trunk_lean_deg",
-    "hip_facing_deg",
-    "follow_through_arc_deg",
-    "lock_angle_deg",
-    "overall_score",
-    "created_at",
-]
+# -----------------------------
+# Read existing CSV
+if OUTPUT_CSV.exists():
+    existing_df = pd.read_csv(OUTPUT_CSV)
+    print(f"Loaded existing CSV rows: {len(existing_df)}")
+else:
+    existing_df = pd.DataFrame()
+    print("No existing training_data.csv found, creating a new one.")
 
-with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=fieldnames)
-    writer.writeheader()
-    writer.writerows(rows)
+# Merge both datasets
+combined_df = pd.concat([existing_df, firestore_df], ignore_index=True)
 
-print(f"Exported {len(rows)} shots to {OUTPUT_CSV.resolve()}")
+# Remove duplicates by shot_id, keeping the newest occurrence
+if "shot_id" in combined_df.columns:
+    combined_df = combined_df.drop_duplicates(subset=["shot_id"], keep="last")
+
+# Optional: sort by shot_id
+combined_df = combined_df.sort_values(by="shot_id", na_position="last")
+
+# Save merged CSV
+combined_df.to_csv(OUTPUT_CSV, index=False)
+
+print(f"Firestore rows fetched: {len(firestore_df)}")
+print(f"Final merged rows saved: {len(combined_df)}")
+print(f"Saved merged dataset to: {OUTPUT_CSV.resolve()}")
