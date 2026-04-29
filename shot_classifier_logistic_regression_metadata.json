@@ -1,0 +1,115 @@
+{
+  "selected_model_type": "logistic_regression",
+  "candidate_models": [
+    "gradient_boosting",
+    "logistic_regression",
+    "random_forest"
+  ],
+  "feature_columns": [
+    "plant_to_ball_norm",
+    "trunk_lean_deg",
+    "hip_facing_deg",
+    "follow_through_arc_deg",
+    "lock_angle_deg"
+  ],
+  "rows_used": 95,
+  "label_counts": {
+    "good": 52,
+    "bad": 43
+  },
+  "label_source_counts": {
+    "calibrated_score": 95
+  },
+  "manual_note_rows": 0,
+  "fallback_rows": 95,
+  "model_comparison": {
+    "random_forest": {
+      "cross_validation": {
+        "folds": 5,
+        "accuracy_mean": 0.8736842105263157,
+        "accuracy_std": 0.10837505411565262,
+        "f1_macro_mean": 0.8704284256522108,
+        "f1_macro_std": 0.11154815804230067
+      },
+      "holdout": {
+        "test_size": 0.2,
+        "train_rows": 76,
+        "test_rows": 19,
+        "accuracy": 0.8421052631578947,
+        "f1_macro": 0.8403361344537814,
+        "classification_report": "              precision    recall  f1-score   support\n\n         bad       0.88      0.78      0.82         9\n        good       0.82      0.90      0.86        10\n\n    accuracy                           0.84        19\n   macro avg       0.85      0.84      0.84        19\nweighted avg       0.85      0.84      0.84        19\n",
+        "confusion_matrix": [
+          [
+            7,
+            2
+          ],
+          [
+            1,
+            9
+          ]
+        ]
+      }
+    },
+    "logistic_regression": {
+      "cross_validation": {
+        "folds": 5,
+        "accuracy_mean": 0.7368421052631579,
+        "accuracy_std": 0.0941502306315701,
+        "f1_macro_mean": 0.7309663865546219,
+        "f1_macro_std": 0.0979793819461363
+      },
+      "holdout": {
+        "test_size": 0.2,
+        "train_rows": 76,
+        "test_rows": 19,
+        "accuracy": 0.7368421052631579,
+        "f1_macro": 0.7338935574229692,
+        "classification_report": "              precision    recall  f1-score   support\n\n         bad       0.75      0.67      0.71         9\n        good       0.73      0.80      0.76        10\n\n    accuracy                           0.74        19\n   macro avg       0.74      0.73      0.73        19\nweighted avg       0.74      0.74      0.74        19\n",
+        "confusion_matrix": [
+          [
+            6,
+            3
+          ],
+          [
+            2,
+            8
+          ]
+        ]
+      }
+    },
+    "gradient_boosting": {
+      "cross_validation": {
+        "folds": 5,
+        "accuracy_mean": 0.9263157894736841,
+        "accuracy_std": 0.05367388961676616,
+        "f1_macro_mean": 0.9241950391556664,
+        "f1_macro_std": 0.05625228614801346
+      },
+      "holdout": {
+        "test_size": 0.2,
+        "train_rows": 76,
+        "test_rows": 19,
+        "accuracy": 0.8421052631578947,
+        "f1_macro": 0.8421052631578947,
+        "classification_report": "              precision    recall  f1-score   support\n\n         bad       0.80      0.89      0.84         9\n        good       0.89      0.80      0.84        10\n\n    accuracy                           0.84        19\n   macro avg       0.84      0.84      0.84        19\nweighted avg       0.85      0.84      0.84        19\n",
+        "confusion_matrix": [
+          [
+            8,
+            1
+          ],
+          [
+            2,
+            8
+          ]
+        ]
+      }
+    }
+  },
+  "selected_model_feature_summary": {
+    "plant_to_ball_norm": -1.068786005794901,
+    "trunk_lean_deg": -0.13902595514591998,
+    "hip_facing_deg": -0.8694549821369606,
+    "follow_through_arc_deg": 1.1438715623940747,
+    "lock_angle_deg": 0.17671336034971824
+  }
+}

@@ -10,16 +10,16 @@ OUT_CSV = os.path.join(ROOT_DIR, "scored_features.csv")
 # FYP2-calibrated bands
 BANDS = {
     "plant_to_ball_norm": {
-        "ideal_min": 5.0,
-        "ideal_max": 12.5,
-        "lo_min": 2.5,
-        "lo_max": 28.0,
+        "ideal_min": 3.0,
+        "ideal_max": 7.0,
+        "lo_min": 2.0,
+        "lo_max": 10.0,
     },
     "trunk_lean_deg": {
-        "ideal_min": -6.0,
-        "ideal_max": 8.0,
+        "ideal_min": -8.0,
+        "ideal_max": 4.0,
         "lo_min": -20.0,
-        "lo_max": 28.0,
+        "lo_max": 20.0,
     },
     "hip_facing_deg": {
         "ideal_min": 0.0,
@@ -34,10 +34,10 @@ BANDS = {
         "lo_max": 240.0,
     },
     "lock_angle_deg": {
-        "ideal_min": 85.0,
-        "ideal_max": 165.0,
-        "lo_min": 70.0,
-        "lo_max": 180.0,
+        "ideal_min": 100.0,
+        "ideal_max": 135.0,
+        "lo_min": 65.0,
+        "lo_max": 165.0,
     },
 }
 

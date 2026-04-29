@@ -1,4 +1,10 @@
 {
+  "selected_model_type": "random_forest",
+  "candidate_models": [
+    "gradient_boosting",
+    "logistic_regression",
+    "random_forest"
+  ],
   "feature_columns": [
     "plant_to_ball_norm",
     "trunk_lean_deg",
@@ -6,31 +12,104 @@
     "follow_through_arc_deg",
     "lock_angle_deg"
   ],
-  "rows_used": 95,
+  "rows_used": 186,
   "label_counts": {
-    "good": 52,
-    "bad": 43
+    "good": 100,
+    "bad": 86
   },
   "label_source_counts": {
-    "calibrated_score": 95
+    "calibrated_score": 186
   },
   "manual_note_rows": 0,
-  "fallback_rows": 95,
-  "evaluation": {
-    "test_size": 0.2,
-    "train_rows": 76,
-    "test_rows": 19,
-    "accuracy": 0.8421052631578947,
-    "classification_report": "              precision    recall  f1-score   support\n\n         bad       0.88      0.78      0.82         9\n        good       0.82      0.90      0.86        10\n\n    accuracy                           0.84        19\n   macro avg       0.85      0.84      0.84        19\nweighted avg       0.85      0.84      0.84        19\n",
-    "confusion_matrix": [
-      [
-        7,
-        2
-      ],
-      [
-        1,
-        9
-      ]
-    ]
+  "fallback_rows": 186,
+  "model_comparison": {
+    "random_forest": {
+      "cross_validation": {
+        "folds": 5,
+        "accuracy_mean": 0.8499288762446657,
+        "accuracy_std": 0.06353863681430955,
+        "f1_macro_mean": 0.8472221746611991,
+        "f1_macro_std": 0.0651243517780781
+      },
+      "holdout": {
+        "test_size": 0.2,
+        "train_rows": 148,
+        "test_rows": 38,
+        "accuracy": 0.8421052631578947,
+        "f1_macro": 0.8416666666666667,
+        "classification_report": "              precision    recall  f1-score   support\n\n         bad       0.83      0.83      0.83        18\n        good       0.85      0.85      0.85        20\n\n    accuracy                           0.84        38\n   macro avg       0.84      0.84      0.84        38\nweighted avg       0.84      0.84      0.84        38\n",
+        "confusion_matrix": [
+          [
+            15,
+            3
+          ],
+          [
+            3,
+            17
+          ]
+        ]
+      }
+    },
+    "logistic_regression": {
+      "cross_validation": {
+        "folds": 5,
+        "accuracy_mean": 0.6832147937411095,
+        "accuracy_std": 0.0545896946558659,
+        "f1_macro_mean": 0.6803942440761842,
+        "f1_macro_std": 0.053218992260144544
+      },
+      "holdout": {
+        "test_size": 0.2,
+        "train_rows": 148,
+        "test_rows": 38,
+        "accuracy": 0.631578947368421,
+        "f1_macro": 0.6305555555555555,
+        "classification_report": "              precision    recall  f1-score   support\n\n         bad       0.61      0.61      0.61        18\n        good       0.65      0.65      0.65        20\n\n    accuracy                           0.63        38\n   macro avg       0.63      0.63      0.63        38\nweighted avg       0.63      0.63      0.63        38\n",
+        "confusion_matrix": [
+          [
+            11,
+            7
+          ],
+          [
+            7,
+            13
+          ]
+        ]
+      }
+    },
+    "gradient_boosting": {
+      "cross_validation": {
+        "folds": 5,
+        "accuracy_mean": 0.8924608819345661,
+        "accuracy_std": 0.04523918136361076,
+        "f1_macro_mean": 0.8912987670224511,
+        "f1_macro_std": 0.04520755977849265
+      },
+      "holdout": {
+        "test_size": 0.2,
+        "train_rows": 148,
+        "test_rows": 38,
+        "accuracy": 0.868421052631579,
+        "f1_macro": 0.867595818815331,
+        "classification_report": "              precision    recall  f1-score   support\n\n         bad       0.88      0.83      0.86        18\n        good       0.86      0.90      0.88        20\n\n    accuracy                           0.87        38\n   macro avg       0.87      0.87      0.87        38\nweighted avg       0.87      0.87      0.87        38\n",
+        "confusion_matrix": [
+          [
+            15,
+            3
+          ],
+          [
+            2,
+            18
+          ]
+        ]
+      }
+    }
+  },
+  "selected_model_feature_summary": {
+    "plant_to_ball_norm": 0.18898620921639392,
+    "trunk_lean_deg": 0.21379035849338193,
+    "hip_facing_deg": 0.10528983057231356,
+    "follow_through_arc_deg": 0.16577713217535803,
+    "lock_angle_deg": 0.3261564695425525
   }
 }
